@@ -28,60 +28,99 @@ def geocode(city_name):
     return None
 
 def fetch_weather(lat, lon):
-    """Busca dados meteorológicos completos: ontem, hoje e previsão (3 dias)."""
+    """Busca dados meteorológicos completos: 7 dias passados + 16 dias de previsão, com UV e humidade."""
     try:
         url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={lat}&longitude={lon}"
             f"&current_weather=true"
-            f"&hourly=temperature_2m,precipitation_probability,wind_speed_10m,weather_code"
-            f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
-            f"&timezone=auto&past_days=1&forecast_days=3"
+            f"&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,wind_speed_10m,weather_code,uv_index"
+            f"&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code,uv_index_max"
+            f"&timezone=auto&past_days=7&forecast_days=16"
         )
-        r = requests.get(url, timeout=5)
+        r = requests.get(url, timeout=10)
         return r.json()
     except Exception as e:
         print(f"[WEATHER ERROR] {e}")
     return None
 
+def get_current_humidity(weather_data):
+    """Obtém a humidade relativa da hora atual."""
+    try:
+        now_str = weather_data["current_weather"]["time"]
+        times = weather_data["hourly"]["time"]
+        for i, t in enumerate(times):
+            if t == now_str:
+                return weather_data["hourly"]["relative_humidity_2m"][i]
+    except: pass
+    return None
+
+def get_current_uv(weather_data):
+    """Obtém o índice UV da hora atual."""
+    try:
+        now_str = weather_data["current_weather"]["time"]
+        times = weather_data["hourly"]["time"]
+        for i, t in enumerate(times):
+            if t == now_str:
+                return weather_data["hourly"]["uv_index"][i]
+    except: pass
+    return None
+
 def format_current(weather_data, city_name):
-    """Formata dados meteorológicos atuais."""
+    """Formata dados meteorológicos atuais, incluindo humidade e UV."""
     cw = weather_data["current_weather"]
     desc = WMO_CODES.get(cw["weathercode"], "Desconhecido")
-    return (
-        f"Agora em {city_name}: {cw['temperature']}°C, {desc}, "
-        f"vento a {cw['windspeed']} km/h."
-    )
+    humidity = get_current_humidity(weather_data)
+    uv = get_current_uv(weather_data)
+    parts = [
+        f"Agora em {city_name}: {cw['temperature']}°C, {desc}",
+        f"vento a {cw['windspeed']} km/h",
+    ]
+    if humidity is not None:
+        parts.append(f"humidade {humidity}%")
+    if uv is not None:
+        parts.append(f"índice UV {uv}")
+    return ", ".join(parts) + "."
 
 def format_daily(weather_data, city_name, day_index, day_label):
-    """Formata dados para um dia específico (0=ontem, 1=hoje, 2=amanhã, 3=depois de amanhã)."""
+    """Formata dados para um dia específico, incluindo UV máximo."""
     daily = weather_data["daily"]
     if day_index >= len(daily["time"]):
         return f"Não tenho dados de previsão para esse dia em {city_name}."
     desc = WMO_CODES.get(daily["weather_code"][day_index], "Desconhecido")
+    uv_max = daily.get("uv_index_max", [None])
+    uv_str = ""
+    if day_index < len(uv_max) and uv_max[day_index] is not None:
+        uv_str = f", índice UV máximo {uv_max[day_index]}"
     return (
-        f"{day_label} em {city_name}: "
+        f"{day_label} ({daily['time'][day_index]}) em {city_name}: "
         f"Máxima {daily['temperature_2m_max'][day_index]}°C, "
         f"Mínima {daily['temperature_2m_min'][day_index]}°C, "
         f"{daily['precipitation_probability_max'][day_index]}% probabilidade de chuva, "
-        f"{desc}."
+        f"{desc}{uv_str}."
     )
 
 def format_hourly(weather_data, city_name, target_datetime_str):
-    """Formata dados para uma hora específica."""
+    """Formata dados para uma hora específica, incluindo humidade e UV."""
     hourly = weather_data["hourly"]
     times = hourly["time"]
-    # Procurar a hora mais próxima
     for i, t in enumerate(times):
         if t == target_datetime_str:
             desc = WMO_CODES.get(hourly["weather_code"][i], "Desconhecido")
-            return (
-                f"Em {city_name} às {t.split('T')[1]}h de {t.split('T')[0]}: "
-                f"{hourly['temperature_2m'][i]}°C, "
-                f"{hourly['precipitation_probability'][i]}% probabilidade de chuva, "
-                f"vento a {hourly['wind_speed_10m'][i]} km/h, "
-                f"{desc}."
-            )
+            humidity = hourly["relative_humidity_2m"][i]
+            uv = hourly.get("uv_index", [None])
+            uv_val = uv[i] if i < len(uv) and uv[i] is not None else None
+            parts = [
+                f"Em {city_name} às {t.split('T')[1]}h de {t.split('T')[0]}",
+                f"{hourly['temperature_2m'][i]}°C",
+                f"humidade {humidity}%",
+                f"{hourly['precipitation_probability'][i]}% probabilidade de chuva",
+                f"vento a {hourly['wind_speed_10m'][i]} km/h",
+                f"{desc}",
+            ]
+            if uv_val is not None:
+                parts.append(f"índice UV {uv_val}")
+            return ": " + ", ".join(parts[1:]) + ". " + parts[0] + "."
     return None
 
 def perguntar_ao_agente(pergunta, historico=None, model_name="llama3"):
@@ -99,11 +138,13 @@ def perguntar_ao_agente(pergunta, historico=None, model_name="llama3"):
 
     extraction_prompt = f"""Analisa a pergunta do utilizador e extrai:
 1. A cidade/localidade mencionada (se não estiver na pergunta, procura no histórico)
-2. O período temporal: "agora", "hoje", "amanhã", "ontem", ou uma hora específica (ex: "15:00")
+2. O período temporal: "agora", "hoje", "amanhã", "ontem", ou uma data específica no formato "YYYY-MM-DD"
 3. O dia se mencionado com hora (ex: "amanhã às 15h" → dia="amanhã", hora="15:00")
+4. Se mencionarem uma data como "dia 10 de maio", converte para "2026-05-10"
+5. Se mencionarem "próxima segunda" ou "daqui a 3 dias", calcula a data a partir de hoje ({now.strftime('%Y-%m-%d')})
 
 Responde APENAS com JSON válido, sem mais texto.
-Formato: {{"cidade": "nome", "dia": "agora/hoje/amanhã/ontem", "hora": null ou "HH:00"}}
+Formato: {{"cidade": "nome", "dia": "agora/hoje/amanhã/ontem/YYYY-MM-DD", "hora": null ou "HH:00"}}
 
 Histórico:
 {hist_context}
@@ -144,21 +185,36 @@ JSON:"""
 
     # --- PASSO 4: Formatar a resposta com base no período pedido ---
     nome = geo["name"]
+    daily_dates = weather.get("daily", {}).get("time", [])
+
+    # Helper: resolver a data-alvo para um índice no array daily
+    def resolve_date(dia_str):
+        """Converte o dia extraído pelo LLM num target_date e day_index."""
+        if dia_str == "ontem":
+            td = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        elif dia_str in ("amanhã", "amanha"):
+            td = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        elif dia_str == "hoje":
+            td = now.strftime("%Y-%m-%d")
+        elif dia_str == "agora":
+            td = now.strftime("%Y-%m-%d")
+        else:
+            # Assumir que é uma data no formato YYYY-MM-DD
+            td = dia_str
+        
+        # Encontrar o índice no array daily
+        if td in daily_dates:
+            return td, daily_dates.index(td)
+        return td, None
+
+    target_date, day_index = resolve_date(dia)
 
     # Determinar que dados apresentar
     if hora:
         # Pediu uma hora específica
-        if dia == "amanhã" or dia == "amanha":
-            target_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-        elif dia == "ontem":
-            target_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        else:
-            target_date = now.strftime("%Y-%m-%d")
-        
         hora_clean = hora.replace("h", ":00").replace("H", ":00")
         if ":" not in hora_clean:
             hora_clean = hora_clean + ":00"
-        # Normalizar para formato HH:00
         hora_parts = hora_clean.split(":")
         hora_formatted = f"{int(hora_parts[0]):02d}:00"
         target_dt = f"{target_date}T{hora_formatted}"
@@ -167,16 +223,32 @@ JSON:"""
         if resultado:
             dados_meteo = resultado
         else:
-            dados_meteo = f"Não tenho dados para {nome} nesse horário específico."
+            dados_meteo = f"Não tenho dados para {nome} nesse horário específico ({target_dt})."
     
     elif dia == "ontem":
-        dados_meteo = format_daily(weather, nome, 0, "Ontem")
+        if day_index is not None:
+            dados_meteo = format_daily(weather, nome, day_index, "Ontem")
+        else:
+            dados_meteo = f"Não tenho dados de ontem para {nome}."
     
-    elif dia == "amanhã" or dia == "amanha":
-        dados_meteo = format_daily(weather, nome, 2, "Amanhã")
+    elif dia in ("amanhã", "amanha"):
+        if day_index is not None:
+            dados_meteo = format_daily(weather, nome, day_index, "Amanhã")
+        else:
+            dados_meteo = f"Não tenho previsão para amanhã em {nome}."
     
     elif dia == "hoje":
-        dados_meteo = format_current(weather, nome) + "\n" + format_daily(weather, nome, 1, "Hoje")
+        dados_meteo = format_current(weather, nome)
+        if day_index is not None:
+            dados_meteo += "\n" + format_daily(weather, nome, day_index, "Hoje")
+    
+    elif day_index is not None:
+        # Data específica (ex: 2026-05-10)
+        dados_meteo = format_daily(weather, nome, day_index, f"Dia {target_date}")
+    
+    elif dia != "agora":
+        # Data fora do alcance
+        dados_meteo = f"Não tenho previsão para {dia} em {nome}. Apenas consigo prever até 16 dias."
     
     else:  # "agora" ou default
         dados_meteo = format_current(weather, nome)
