@@ -729,3 +729,56 @@ body {
     padding: 16px 0;
 }
 
+/* Scan Mode Selector Tabs */
+.scan-modes-tabs {
+    display: flex;
+    gap: 8px;
+    margin: 8px 0 16px 0;
+    width: 100%;
+}
+
+.mode-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mode-tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Active State Styles per Mode */
+.mode-tab[data-mode="sunglasses"].active {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: var(--accent-orange);
+    color: #fbbf24;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+}
+
+.mode-tab[data-mode="spectacles"].active {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: var(--accent-green);
+    color: #34d399;
+    box-shadow: 0 0 12px var(--accent-green-glow);
+}
+
+.mode-tab[data-mode="special"].active {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: var(--accent-cyan);
+    color: #22d3ee;
+    box-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+}

@@ -52,6 +52,13 @@ let scanAngle = 0;
 let laserY = 0;
 let laserDirection = 1;
 
+// Crop & Smoothing Variables
+let offscreenCanvas = null;
+let offscreenCtx = null;
+const SCAN_SIZE = 260; // Size of the scanner square (cropped region)
+let confidenceHistory = []; // Rolling history of confidence scores for stability
+let currentScanMode = "sunglasses"; // Active scanning channel: "sunglasses", "spectacles", or "special"
+
 // Keywords configuration for glasses detection
 const GLASSES_KEYWORDS = ["spectacles", "specs", "eyeglasses", "glasses", "sunglasses", "sunglass", "goggles", "shades"];
 const EXCLUDE_KEYWORDS = ["wine glass", "hourglass", "drinking glass", "magnifying glass", "looking glass", "spyglass", "glass, drinking glass"];
@@ -131,6 +138,15 @@ async function startCamera() {
             // Sync canvas dimensions with video
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+            
+            // Initialize offscreen canvas for cropping
+            offscreenCanvas = document.createElement("canvas");
+            offscreenCanvas.width = SCAN_SIZE;
+            offscreenCanvas.height = SCAN_SIZE;
+            offscreenCtx = offscreenCanvas.getContext("2d");
+            
+            // Clear confidence history
+            confidenceHistory = [];
             
             isCameraActive = true;
             btnToggleCam.disabled = false;
@@ -221,23 +237,60 @@ async function processVideoFrame(now) {
     // 1. Draw video onto canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // 2. Classify current frame using MobileNet
+    // Calculate center bounds for the cropping box
+    const sx = (canvas.width - SCAN_SIZE) / 2;
+    const sy = (canvas.height - SCAN_SIZE) / 2;
+
+    // Draw the cropped video region onto the offscreen canvas for classification
+    if (offscreenCtx) {
+        offscreenCtx.drawImage(video, sx, sy, SCAN_SIZE, SCAN_SIZE, 0, 0, SCAN_SIZE, SCAN_SIZE);
+    }
+
+    // 2. Classify cropped frame region using MobileNet
     try {
-        const predictions = await model.classify(video);
+        const predictions = await model.classify(offscreenCanvas || video);
         
-        // 3. Process predictions for glasses
+        // 3. Process predictions for glasses depending on selected scan mode
         let bestGlassesPrediction = null;
         let highestGlassesProb = 0;
         
         predictions.forEach(pred => {
             const classNameLower = pred.className.toLowerCase();
-            const matchesGlasses = GLASSES_KEYWORDS.some(k => classNameLower.includes(k));
             const matchesExclude = EXCLUDE_KEYWORDS.some(k => classNameLower.includes(k));
-            
-            if (matchesGlasses && !matchesExclude) {
-                if (pred.probability > highestGlassesProb) {
-                    highestGlassesProb = pred.probability;
-                    bestGlassesPrediction = pred;
+            if (matchesExclude) return;
+
+            if (currentScanMode === "sunglasses") {
+                // Sunglasses mode: Look for sunglasses classes with a confidence threshold
+                const isSun = classNameLower.includes("sunglasses") || classNameLower.includes("sunglass") || classNameLower.includes("shades");
+                if (isSun && pred.probability >= 0.15) {
+                    if (pred.probability > highestGlassesProb) {
+                        highestGlassesProb = pred.probability;
+                        bestGlassesPrediction = pred;
+                    }
+                }
+            } else if (currentScanMode === "spectacles") {
+                // Normal/Prescription Glasses mode: Look for spectacles
+                const isSpec = classNameLower.includes("spectacles") || classNameLower.includes("specs") || classNameLower.includes("eyeglasses") || classNameLower.includes("glasses");
+                // Special Fallback: clear glasses are often classified as sunglasses with low confidence (e.g. 5% - 28%)
+                const isSunFallback = (classNameLower.includes("sunglasses") || classNameLower.includes("sunglass")) && pred.probability < 0.30 && pred.probability >= 0.05;
+                
+                if (isSpec || isSunFallback) {
+                    if (pred.probability > highestGlassesProb) {
+                        highestGlassesProb = pred.probability;
+                        bestGlassesPrediction = {
+                            className: isSpec ? pred.className : "spectacles, specs, eyeglasses, glasses",
+                            probability: pred.probability
+                        };
+                    }
+                }
+            } else if (currentScanMode === "special") {
+                // Other / Special glasses: Look for goggles, masks, eye protection
+                const isGoggle = classNameLower.includes("goggles") || classNameLower.includes("ski mask") || classNameLower.includes("mask") || classNameLower.includes("eye protector");
+                if (isGoggle && pred.probability >= 0.05) {
+                    if (pred.probability > highestGlassesProb) {
+                        highestGlassesProb = pred.probability;
+                        bestGlassesPrediction = pred;
+                    }
                 }
             }
         });
@@ -245,15 +298,24 @@ async function processVideoFrame(now) {
         // 4. Update dynamic prediction panel
         updatePredictionPanel(predictions);
 
-        // 5. Update Statistics
+        // 5. Update rolling confidence buffer to stabilize detection
+        const rawConfidence = bestGlassesPrediction ? Math.round(highestGlassesProb * 100) : 0;
+        confidenceHistory.push(rawConfidence);
+        if (confidenceHistory.length > 15) {
+            confidenceHistory.shift();
+        }
+        
+        // Compute rolling average
+        const avgConfidence = confidenceHistory.reduce((sum, val) => sum + val, 0) / confidenceHistory.length;
+        const hasGlasses = avgConfidence >= 12; // 12% averaged confidence threshold
+
+        // 6. Update Statistics
         totalFrames++;
         statTotalFrames.textContent = totalFrames;
 
-        const hasGlasses = bestGlassesPrediction !== null && highestGlassesProb >= 0.05; // 5% confidence threshold
-
         if (hasGlasses) {
-            const confidencePct = Math.round(highestGlassesProb * 100);
-            confidenceSum += confidencePct;
+            const finalConfidence = Math.max(rawConfidence, Math.round(avgConfidence));
+            confidenceSum += finalConfidence;
             confidenceCount++;
             statAvgConfidence.textContent = `${Math.round(confidenceSum / confidenceCount)}%`;
             
@@ -261,12 +323,14 @@ async function processVideoFrame(now) {
             statWearingTime.textContent = `${Math.round(timeWearingGlasses)}s`;
 
             // Display "GLASSES DETECTED"
-            const labelName = getCleanGlassesLabel(bestGlassesPrediction.className);
-            setUIState("GLASSES", confidencePct, labelName);
-            handleStateTransition("GLASSES", confidencePct, labelName);
+            const labelName = bestGlassesPrediction 
+                ? getCleanGlassesLabel(bestGlassesPrediction.className)
+                : "Óculos Detetados";
+            setUIState("GLASSES", finalConfidence, labelName);
+            handleStateTransition("GLASSES", finalConfidence, labelName);
             
             // Draw green scanning effects
-            drawHUD(true, confidencePct, labelName);
+            drawHUD(true, finalConfidence, labelName);
         } else {
             // Display "NO GLASSES"
             setUIState("NO_GLASSES");
@@ -304,12 +368,24 @@ function updatePredictionPanel(predictions) {
     
     predictions.forEach(pred => {
         const classNameLower = pred.className.toLowerCase();
-        const matchesGlasses = GLASSES_KEYWORDS.some(k => classNameLower.includes(k)) && 
-                              !EXCLUDE_KEYWORDS.some(k => classNameLower.includes(k));
+        
+        // Determine matching based on the active scan mode
+        let matchesGlasses = false;
+        const matchesExclude = EXCLUDE_KEYWORDS.some(k => classNameLower.includes(k));
+        
+        if (!matchesExclude) {
+            if (currentScanMode === "sunglasses") {
+                matchesGlasses = classNameLower.includes("sunglasses") || classNameLower.includes("sunglass") || classNameLower.includes("shades");
+            } else if (currentScanMode === "spectacles") {
+                const isSpec = classNameLower.includes("spectacles") || classNameLower.includes("specs") || classNameLower.includes("eyeglasses") || classNameLower.includes("glasses");
+                const isSunFallback = (classNameLower.includes("sunglasses") || classNameLower.includes("sunglass")) && pred.probability < 0.30 && pred.probability >= 0.05;
+                matchesGlasses = isSpec || isSunFallback;
+            } else if (currentScanMode === "special") {
+                matchesGlasses = classNameLower.includes("goggles") || classNameLower.includes("ski mask") || classNameLower.includes("mask") || classNameLower.includes("eye protector");
+            }
+        }
         
         const probabilityPct = Math.round(pred.probability * 100);
-        
-        // Take the first label element from the comma-separated classes list
         const cleanName = pred.className.split(",")[0].trim();
         
         const itemDiv = document.createElement("div");
@@ -327,110 +403,140 @@ function updatePredictionPanel(predictions) {
 
 // Draw a cool science fiction scanning radar HUD overlay
 function drawHUD(detected, confidence = 0, label = "") {
-    const themeColor = detected ? "rgba(16, 185, 129, 0.8)" : "rgba(6, 182, 212, 0.5)";
-    const textColor = detected ? "#10b981" : "#06b6d4";
+    // Mode-specific base color themes
+    let baseColor = "rgba(6, 182, 212, 0.5)"; // Cyan/Blue default
+    let textBaseColor = "#06b6d4";
     
-    ctx.shadowBlur = 0; // Clear shadows to ensure fast execution
-    
-    // Draw horizontal laser scanning sweep line
-    ctx.strokeStyle = detected ? "rgba(16, 185, 129, 0.4)" : "rgba(6, 182, 212, 0.25)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, laserY);
-    ctx.lineTo(canvas.width, laserY);
-    ctx.stroke();
-    
-    // Update laser sweep vertical coordinate
-    laserY += 3 * laserDirection;
-    if (laserY >= canvas.height || laserY <= 0) {
-        laserDirection *= -1;
+    if (currentScanMode === "sunglasses") {
+        baseColor = "rgba(245, 158, 11, 0.45)"; // Gold/Yellow
+        textBaseColor = "#fbbf24";
+    } else if (currentScanMode === "spectacles") {
+        baseColor = "rgba(16, 185, 129, 0.45)"; // Emerald Green
+        textBaseColor = "#34d399";
+    } else if (currentScanMode === "special") {
+        baseColor = "rgba(6, 182, 212, 0.45)"; // Ice Blue/Cyan
+        textBaseColor = "#22d3ee";
     }
     
-    // Center of canvas
+    const themeColor = detected ? "rgba(16, 185, 129, 0.85)" : baseColor;
+    const textColor = detected ? "#10b981" : textBaseColor;
+    
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
     
-    // Draw digital target reticle in the middle
+    // Scanner Box bounds
+    const boxX = cx - SCAN_SIZE / 2;
+    const boxY = cy - SCAN_SIZE / 2;
+    
+    // 1. Draw horizontal laser scanning sweep line (restricted inside the scanner box)
+    ctx.strokeStyle = detected ? "rgba(16, 185, 129, 0.6)" : "rgba(6, 182, 212, 0.4)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(boxX, boxY + laserY);
+    ctx.lineTo(boxX + SCAN_SIZE, boxY + laserY);
+    ctx.stroke();
+    
+    // Update laser sweep coordinate (restricted inside SCAN_SIZE)
+    laserY += 4 * laserDirection;
+    if (laserY >= SCAN_SIZE || laserY <= 0) {
+        laserDirection *= -1;
+    }
+    
+    // 2. Draw Scanner Box outline
     ctx.strokeStyle = themeColor;
     ctx.lineWidth = 1.5;
+    ctx.strokeRect(boxX, boxY, SCAN_SIZE, SCAN_SIZE);
     
-    // Outer circle
-    ctx.beginPath();
-    ctx.arc(cx, cy, 120, 0, 2 * Math.PI);
-    ctx.stroke();
-    
-    // Inner crosshairs
-    ctx.beginPath();
-    // Left bracket
-    ctx.moveTo(cx - 150, cy);
-    ctx.lineTo(cx - 120, cy);
-    // Right bracket
-    ctx.moveTo(cx + 120, cy);
-    ctx.lineTo(cx + 150, cy);
-    // Top bracket
-    ctx.moveTo(cx, cy - 150);
-    ctx.lineTo(cx, cy - 120);
-    // Bottom bracket
-    ctx.moveTo(cx, cy + 120);
-    ctx.lineTo(cx, cy + 150);
-    ctx.stroke();
-    
-    // Draw corner indicators around the canvas view
-    const pad = 20;
-    const size = 30;
-    ctx.lineWidth = 3;
+    // 3. Draw heavy corner brackets for the Scanner Box
+    const len = 24;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = themeColor;
     
     // Top-Left
     ctx.beginPath();
-    ctx.moveTo(pad + size, pad);
+    ctx.moveTo(boxX + len, boxY);
+    ctx.lineTo(boxX, boxY);
+    ctx.lineTo(boxX, boxY + len);
+    ctx.stroke();
+
+    // Top-Right
+    ctx.beginPath();
+    ctx.moveTo(boxX + SCAN_SIZE - len, boxY);
+    ctx.lineTo(boxX + SCAN_SIZE, boxY);
+    ctx.lineTo(boxX + SCAN_SIZE, boxY + len);
+    ctx.stroke();
+
+    // Bottom-Left
+    ctx.beginPath();
+    ctx.moveTo(boxX, boxY + SCAN_SIZE - len);
+    ctx.lineTo(boxX, boxY + SCAN_SIZE);
+    ctx.lineTo(boxX + len, boxY + SCAN_SIZE);
+    ctx.stroke();
+
+    // Bottom-Right
+    ctx.beginPath();
+    ctx.moveTo(boxX + SCAN_SIZE, boxY + SCAN_SIZE - len);
+    ctx.lineTo(boxX + SCAN_SIZE, boxY + SCAN_SIZE);
+    ctx.lineTo(boxX + SCAN_SIZE - len, boxY + SCAN_SIZE);
+    ctx.stroke();
+    
+    // 4. Draw corner indicators around the entire canvas view
+    const pad = 20;
+    const outerSize = 30;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    
+    // Top-Left
+    ctx.beginPath();
+    ctx.moveTo(pad + outerSize, pad);
     ctx.lineTo(pad, pad);
-    ctx.lineTo(pad, pad + size);
+    ctx.lineTo(pad, pad + outerSize);
     ctx.stroke();
     
     // Top-Right
     ctx.beginPath();
-    ctx.moveTo(canvas.width - pad - size, pad);
+    ctx.moveTo(canvas.width - pad - outerSize, pad);
     ctx.lineTo(canvas.width - pad, pad);
-    ctx.lineTo(canvas.width - pad, pad + size);
+    ctx.lineTo(canvas.width - pad, pad + outerSize);
     ctx.stroke();
     
     // Bottom-Left
     ctx.beginPath();
-    ctx.moveTo(pad, canvas.height - pad - size);
+    ctx.moveTo(pad, canvas.height - pad - outerSize);
     ctx.lineTo(pad, canvas.height - pad);
-    ctx.lineTo(pad + size, canvas.height - pad);
+    ctx.lineTo(pad + outerSize, canvas.height - pad);
     ctx.stroke();
     
     // Bottom-Right
     ctx.beginPath();
-    ctx.moveTo(canvas.width - pad, canvas.height - pad - size);
+    ctx.moveTo(canvas.width - pad, canvas.height - pad - outerSize);
     ctx.lineTo(canvas.width - pad, canvas.height - pad);
-    ctx.lineTo(canvas.width - pad - size, canvas.height - pad);
+    ctx.lineTo(canvas.width - pad - outerSize, canvas.height - pad);
     ctx.stroke();
     
-    // Text labels on Canvas
+    // 5. Draw textual labels
     ctx.fillStyle = textColor;
-    ctx.font = "bold 13px 'JetBrains Mono', monospace";
+    ctx.font = "bold 12px 'JetBrains Mono', monospace";
     ctx.fillText("SCANNER: ATIVO", pad + 10, pad + 45);
-    ctx.fillText(`MODELO: MOBILENET_V1`, pad + 10, pad + 65);
+    ctx.fillText("ZONA DE SCAN", boxX, boxY - 8);
     
     if (detected) {
         ctx.fillStyle = "#10b981";
-        ctx.font = "bold 14px 'JetBrains Mono', monospace";
-        ctx.fillText(`DETETADO: ${label.toUpperCase()}`, cx - 140, cy - 130);
-        ctx.fillText(`CONF: ${confidence}%`, cx - 50, cy + 140);
+        ctx.font = "bold 13px 'JetBrains Mono', monospace";
+        ctx.fillText(`${label.toUpperCase()}`, boxX, boxY + SCAN_SIZE + 20);
+        ctx.fillText(`CONF: ${confidence}%`, boxX + SCAN_SIZE - 90, boxY + SCAN_SIZE + 20);
         
-        // Draw green bounding rings on center target
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.8)";
+        // Draw green spinning rings on center target
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.85)";
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.arc(cx, cy, 125, scanAngle, scanAngle + 0.5 * Math.PI);
+        ctx.arc(cx, cy, 140, scanAngle, scanAngle + 0.3 * Math.PI);
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(cx, cy, 125, scanAngle + Math.PI, scanAngle + 1.5 * Math.PI);
+        ctx.arc(cx, cy, 140, scanAngle + Math.PI, scanAngle + 1.3 * Math.PI);
         ctx.stroke();
         
-        scanAngle += 0.03; // Rotate rings
+        scanAngle += 0.03;
     }
 }
 
@@ -556,6 +662,22 @@ function updateLoadingProgress(text, progress) {
 // Listeners
 btnToggleCam.addEventListener("click", toggleCamera);
 btnClearHistory.addEventListener("click", clearHistory);
+
+// Setup Scan Mode tabs selection
+const tabs = document.querySelectorAll(".mode-tab");
+tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+        tabs.forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        currentScanMode = tab.dataset.mode;
+        
+        // Reset rolling confidence history buffer to avoid carryovers between modes
+        confidenceHistory = [];
+        
+        // Update status display instantly
+        setUIState("READY");
+    });
+});
 
 // Start
 window.addEventListener("DOMContentLoaded", initApp);
