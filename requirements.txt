@@ -1,4 +1,2 @@
-streamlit
-requests
-langchain
-langchain-community
+# Esta aplicação corre nativamente em Python utilizando apenas a biblioteca padrão.
+# Não são necessárias dependências externas de pip!

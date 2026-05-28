@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtual Try-On: Glasses</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <svg class="logo-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12a5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1 5-5 5 5 0 0 1 5 5"></path>
+                    <path d="M2 12v1a5 5 0 0 0 5 5 5 5 0 0 0 5-5v-1"></path>
+                    <path d="M12 12v1a5 5 0 0 0 5 5 5 5 0 0 0 5-5v-1"></path>
+                    <line x1="7" y1="12" x2="7" y2="12.01"></line>
+                    <line x1="17" y1="12" x2="17" y2="12.01"></line>
+                </svg>
+                <div class="logo-text">
+                    <h1>Virtual Try-On:<span> Glasses</span></h1>
+                    <p>Deteção Inteligente de Óculos em Qualquer Ponto da Imagem</p>
+                </div>
+            </div>
+            <div class="status-badge" id="system-status">
+                <span class="status-dot orange"></span>
+                <span class="status-label">A iniciar TensorFlow...</span>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <main class="dashboard-grid">
+            <!-- Left Side: Camera & Viewfinder -->
+            <section class="card glass camera-section">
+                <div class="card-header">
+                    <h2>Câmara ao Vivo</h2>
+                    <div class="fps-counter" id="fps-display">FPS: 00</div>
+                </div>
+                
+                <div class="viewfinder-container">
+                    <video id="webcam" autoplay playsinline muted></video>
+                    <canvas id="output-canvas"></canvas>
+                    
+                    <!-- Loading Overlay -->
+                    <div class="overlay" id="loading-overlay">
+                        <div class="spinner"></div>
+                        <p id="loading-text">A carregar biblioteca TensorFlow.js...</p>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" id="loading-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controls-container">
+                    <button id="btn-toggle-cam" class="btn btn-primary" disabled>
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                        <span>Ligar Câmara</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Side: Status & Statistics -->
+            <div class="stats-sidebar">
+                <!-- Detection Status Card -->
+                <section class="card glass status-card" id="detection-card">
+                    <div class="card-header">
+                        <h2>Estado da Deteção</h2>
+                    </div>
+                    <div class="status-display">
+                        <div class="status-icon-container" id="status-icon-box">
+                            <span class="status-emoji" id="status-emoji">⏳</span>
+                        </div>
+                        <div class="status-info">
+                            <h3 id="detection-result">A carregar IA</h3>
+                            <p id="detection-subtext">Por favor, aguarde...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="confidence-container">
+                        <div class="confidence-header">
+                            <span>Confiança da IA</span>
+                            <span id="confidence-percentage">0%</span>
+                        </div>
+                        <div class="confidence-bar-bg">
+                            <div class="confidence-bar-fill" id="confidence-bar"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- AI Vision Analysis (Class Predictions) -->
+                <section class="card glass vision-card">
+                    <div class="card-header">
+                        <h2>Visão da IA: Classes Detetadas</h2>
+                    </div>
+                    <div class="prediction-list" id="ai-prediction-list">
+                        <div class="empty-predictions">Ligue a câmara para iniciar o scanner...</div>
+                    </div>
+                </section>
+
+                <!-- Statistics Grid -->
+                <section class="card glass stats-card">
+                    <div class="card-header">
+                        <h2>Estatísticas da Sessão</h2>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-total-frames">0</div>
+                            <div class="stat-label">Frames Analisados</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-avg-confidence">0%</div>
+                            <div class="stat-label">Média de Confiança</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="stat-wearing-time">0s</div>
+                            <div class="stat-label">Tempo com Óculos</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- History Log Card -->
+                <section class="card glass history-card">
+                    <div class="card-header">
+                        <h2>Histórico de Eventos</h2>
+                        <button id="btn-clear-history" class="btn btn-text">Limpar</button>
+                    </div>
+                    <div class="history-log-container">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Hora</th>
+                                    <th>Evento</th>
+                                    <th>Confiança</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-tbody">
+                                <tr class="empty-row">
+                                    <td colspan="3">Nenhum evento registado nesta sessão</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+        
+        <footer class="app-footer">
+            <p>&copy; 2026 Virtual Try-On: Glasses. Processado localmente via TensorFlow.js & MobileNet.</p>
+        </footer>
+    </div>
+
+    <!-- Load TensorFlow.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <!-- Load MobileNet model from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+    <!-- Application Logic module -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>

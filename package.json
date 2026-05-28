@@ -1,0 +1,15 @@
+{
+  "name": "visualguard",
+  "version": "1.0.0",
+  "description": "VisualGuard - Deteção de Óculos em Tempo Real",
+  "scripts": {
+    "start": "npx -y http-server -p 8000 -o"
+  },
+  "keywords": [
+    "glasses-detection",
+    "mediapipe",
+    "webcam"
+  ],
+  "author": "VisualGuard",
+  "license": "ISC"
+}
