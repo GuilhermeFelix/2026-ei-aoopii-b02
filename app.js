@@ -19,7 +19,6 @@ const detectionResult = document.getElementById("detection-result");
 const detectionSubtext = document.getElementById("detection-subtext");
 const confidencePercentage = document.getElementById("confidence-percentage");
 const confidenceBar = document.getElementById("confidence-bar");
-const aiPredictionList = document.getElementById("ai-prediction-list");
 
 // Stats Elements
 const statTotalFrames = document.getElementById("stat-total-frames");
@@ -33,6 +32,7 @@ let model = null; // MobileNet Model
 let webcamStream = null;
 let isCameraActive = false;
 let animationFrameId = null;
+let currentScanMode = "sunglasses"; // Active scanning mode: "sunglasses", "spectacles", or "special"
 
 // Statistics Variables
 let totalFrames = 0;
@@ -53,11 +53,8 @@ let laserY = 0;
 let laserDirection = 1;
 
 // Crop & Smoothing Variables
-let offscreenCanvas = null;
-let offscreenCtx = null;
-const SCAN_SIZE = 260; // Size of the scanner square (cropped region)
+const SCAN_SIZE = 260; // Size of the scanner square (drawn visually)
 let confidenceHistory = []; // Rolling history of confidence scores for stability
-let currentScanMode = "sunglasses"; // Active scanning channel: "sunglasses", "spectacles", or "special"
 
 // Keywords configuration for glasses detection
 const GLASSES_KEYWORDS = ["spectacles", "specs", "eyeglasses", "glasses", "sunglasses", "sunglass", "goggles", "shades"];
@@ -69,13 +66,13 @@ async function initApp() {
         updateLoadingProgress("A carregar TensorFlow.js...", 30);
         await delay(300);
 
-        // Verify tf and mobilenet are loaded in the global window namespace
+        // Verify libraries are loaded in the global window namespace
         if (typeof tf === 'undefined' || typeof mobilenet === 'undefined') {
             throw new Error("Bibliotecas TensorFlow.js ou MobileNet não foram carregadas corretamente a partir do CDN.");
         }
 
         updateLoadingProgress("A carregar modelo MobileNet v1...", 65);
-        // Load MobileNet. By default, it loads MobileNet V1 with alpha = 1.0 (highest accuracy version)
+        // Load MobileNet (alpha 1.0)
         model = await mobilenet.load({
             version: 1,
             alpha: 1.0
@@ -138,12 +135,6 @@ async function startCamera() {
             // Sync canvas dimensions with video
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            
-            // Initialize offscreen canvas for cropping
-            offscreenCanvas = document.createElement("canvas");
-            offscreenCanvas.width = SCAN_SIZE;
-            offscreenCanvas.height = SCAN_SIZE;
-            offscreenCtx = offscreenCanvas.getContext("2d");
             
             // Clear confidence history
             confidenceHistory = [];
@@ -215,7 +206,6 @@ function stopCamera() {
     fpsDisplay.textContent = "FPS: 00";
     
     setUIState("READY");
-    aiPredictionList.innerHTML = `<div class="empty-predictions">Ligue a câmara para iniciar o scanner...</div>`;
 }
 
 // Main Frame loop
@@ -237,22 +227,19 @@ async function processVideoFrame(now) {
     // 1. Draw video onto canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Calculate center bounds for the cropping box
-    const sx = (canvas.width - SCAN_SIZE) / 2;
-    const sy = (canvas.height - SCAN_SIZE) / 2;
-
-    // Draw the cropped video region onto the offscreen canvas for classification
-    if (offscreenCtx) {
-        offscreenCtx.drawImage(video, sx, sy, SCAN_SIZE, SCAN_SIZE, 0, 0, SCAN_SIZE, SCAN_SIZE);
-    }
-
-    // 2. Classify cropped frame region using MobileNet
+    // 2. Classify current frame using MobileNet directly querying top 15 predictions
     try {
-        const predictions = await model.classify(offscreenCanvas || video);
+        const predictions = await model.classify(video, 15);
         
-        // 3. Process predictions for glasses depending on selected scan mode
+        if (statusLabel.textContent.startsWith("Erro")) {
+            statusDot.className = "status-dot green";
+            statusLabel.textContent = "Câmara Ativa";
+        }
+
+        // 3. Process predictions based on selected active scan mode
         let bestGlassesPrediction = null;
         let highestGlassesProb = 0;
+        let detectedType = null; // "sunglasses", "spectacles", or "goggles"
         
         predictions.forEach(pred => {
             const classNameLower = pred.className.toLowerCase();
@@ -260,19 +247,20 @@ async function processVideoFrame(now) {
             if (matchesExclude) return;
 
             if (currentScanMode === "sunglasses") {
-                // Sunglasses mode: Look for sunglasses classes with a confidence threshold
+                // Sunglasses mode: Look for sunglasses classes
                 const isSun = classNameLower.includes("sunglasses") || classNameLower.includes("sunglass") || classNameLower.includes("shades");
-                if (isSun && pred.probability >= 0.15) {
+                if (isSun && pred.probability >= 0.12) {
                     if (pred.probability > highestGlassesProb) {
                         highestGlassesProb = pred.probability;
                         bestGlassesPrediction = pred;
+                        detectedType = "sunglasses";
                     }
                 }
             } else if (currentScanMode === "spectacles") {
-                // Normal/Prescription Glasses mode: Look for spectacles
+                // Prescription/Normal Glasses mode: Look for spectacles
                 const isSpec = classNameLower.includes("spectacles") || classNameLower.includes("specs") || classNameLower.includes("eyeglasses") || classNameLower.includes("glasses");
-                // Special Fallback: clear glasses are often classified as sunglasses with low confidence (e.g. 5% - 28%)
-                const isSunFallback = (classNameLower.includes("sunglasses") || classNameLower.includes("sunglass")) && pred.probability < 0.30 && pred.probability >= 0.05;
+                // Special Fallback: clear glasses frames often register as sunglasses with low confidence (e.g. 2.5% to 28%)
+                const isSunFallback = (classNameLower.includes("sunglasses") || classNameLower.includes("sunglass")) && pred.probability < 0.28 && pred.probability >= 0.025;
                 
                 if (isSpec || isSunFallback) {
                     if (pred.probability > highestGlassesProb) {
@@ -281,35 +269,34 @@ async function processVideoFrame(now) {
                             className: isSpec ? pred.className : "spectacles, specs, eyeglasses, glasses",
                             probability: pred.probability
                         };
+                        detectedType = "spectacles";
                     }
                 }
             } else if (currentScanMode === "special") {
-                // Other / Special glasses: Look for goggles, masks, eye protection
+                // Safety goggles/masks
                 const isGoggle = classNameLower.includes("goggles") || classNameLower.includes("ski mask") || classNameLower.includes("mask") || classNameLower.includes("eye protector");
-                if (isGoggle && pred.probability >= 0.05) {
+                if (isGoggle && pred.probability >= 0.015) {
                     if (pred.probability > highestGlassesProb) {
                         highestGlassesProb = pred.probability;
                         bestGlassesPrediction = pred;
+                        detectedType = "goggles";
                     }
                 }
             }
         });
 
-        // 4. Update dynamic prediction panel
-        updatePredictionPanel(predictions);
-
-        // 5. Update rolling confidence buffer to stabilize detection
+        // 4. Update rolling confidence buffer to stabilize detection
         const rawConfidence = bestGlassesPrediction ? Math.round(highestGlassesProb * 100) : 0;
         confidenceHistory.push(rawConfidence);
-        if (confidenceHistory.length > 15) {
+        if (confidenceHistory.length > 12) {
             confidenceHistory.shift();
         }
         
         // Compute rolling average
         const avgConfidence = confidenceHistory.reduce((sum, val) => sum + val, 0) / confidenceHistory.length;
-        const hasGlasses = avgConfidence >= 12; // 12% averaged confidence threshold
+        const hasGlasses = avgConfidence >= 2.0; // Sensitive 2.0% rolling average
 
-        // 6. Update Statistics
+        // 5. Update Statistics
         totalFrames++;
         statTotalFrames.textContent = totalFrames;
 
@@ -323,9 +310,15 @@ async function processVideoFrame(now) {
             statWearingTime.textContent = `${Math.round(timeWearingGlasses)}s`;
 
             // Display "GLASSES DETECTED"
-            const labelName = bestGlassesPrediction 
-                ? getCleanGlassesLabel(bestGlassesPrediction.className)
-                : "Óculos Detetados";
+            let labelName = "Óculos Detetados";
+            if (detectedType === "sunglasses") {
+                labelName = "Óculos de Sol (Sunglasses)";
+            } else if (detectedType === "spectacles") {
+                labelName = "Óculos Normais (Spectacles)";
+            } else if (detectedType === "goggles") {
+                labelName = "Óculos de Proteção (Goggles)";
+            }
+            
             setUIState("GLASSES", finalConfidence, labelName);
             handleStateTransition("GLASSES", finalConfidence, labelName);
             
@@ -342,6 +335,8 @@ async function processVideoFrame(now) {
 
     } catch (err) {
         console.error("Erro no processamento da imagem pela IA:", err);
+        statusDot.className = "status-dot red";
+        statusLabel.textContent = "Erro IA: " + err.message;
     }
 
     // Next loop frame
@@ -350,60 +345,8 @@ async function processVideoFrame(now) {
     }
 }
 
-// Clean up standard ImageNet class name into Portuguese labels
-function getCleanGlassesLabel(className) {
-    const primaryClass = className.split(",")[0].trim().toLowerCase();
-    if (primaryClass.includes("sunglass") || primaryClass.includes("shades")) {
-        return "Óculos de Sol (Sunglasses)";
-    } else if (primaryClass.includes("goggle")) {
-        return "Óculos de Proteção (Goggles)";
-    } else {
-        return "Óculos Graduados (Spectacles)";
-    }
-}
-
-// Update Top predictions panel in the sidebar
-function updatePredictionPanel(predictions) {
-    aiPredictionList.innerHTML = "";
-    
-    predictions.forEach(pred => {
-        const classNameLower = pred.className.toLowerCase();
-        
-        // Determine matching based on the active scan mode
-        let matchesGlasses = false;
-        const matchesExclude = EXCLUDE_KEYWORDS.some(k => classNameLower.includes(k));
-        
-        if (!matchesExclude) {
-            if (currentScanMode === "sunglasses") {
-                matchesGlasses = classNameLower.includes("sunglasses") || classNameLower.includes("sunglass") || classNameLower.includes("shades");
-            } else if (currentScanMode === "spectacles") {
-                const isSpec = classNameLower.includes("spectacles") || classNameLower.includes("specs") || classNameLower.includes("eyeglasses") || classNameLower.includes("glasses");
-                const isSunFallback = (classNameLower.includes("sunglasses") || classNameLower.includes("sunglass")) && pred.probability < 0.30 && pred.probability >= 0.05;
-                matchesGlasses = isSpec || isSunFallback;
-            } else if (currentScanMode === "special") {
-                matchesGlasses = classNameLower.includes("goggles") || classNameLower.includes("ski mask") || classNameLower.includes("mask") || classNameLower.includes("eye protector");
-            }
-        }
-        
-        const probabilityPct = Math.round(pred.probability * 100);
-        const cleanName = pred.className.split(",")[0].trim();
-        
-        const itemDiv = document.createElement("div");
-        itemDiv.className = `prediction-item ${matchesGlasses ? "matches-glasses" : ""}`;
-        itemDiv.innerHTML = `
-            <div class="prediction-name" title="${pred.className}">${cleanName}</div>
-            <div class="prediction-bar-bg">
-                <div class="prediction-bar-fill" style="width: ${probabilityPct}%"></div>
-            </div>
-            <div class="prediction-value">${probabilityPct}%</div>
-        `;
-        aiPredictionList.appendChild(itemDiv);
-    });
-}
-
-// Draw a cool science fiction scanning radar HUD overlay
+// Draw science fiction scanning radar HUD overlay
 function drawHUD(detected, confidence = 0, label = "") {
-    // Mode-specific base color themes
     let baseColor = "rgba(6, 182, 212, 0.5)"; // Cyan/Blue default
     let textBaseColor = "#06b6d4";
     
@@ -526,7 +469,7 @@ function drawHUD(detected, confidence = 0, label = "") {
         ctx.fillText(`${label.toUpperCase()}`, boxX, boxY + SCAN_SIZE + 20);
         ctx.fillText(`CONF: ${confidence}%`, boxX + SCAN_SIZE - 90, boxY + SCAN_SIZE + 20);
         
-        // Draw green spinning rings on center target
+        // Draw green bounding rings on center target
         ctx.strokeStyle = "rgba(16, 185, 129, 0.85)";
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -597,9 +540,8 @@ function handleStateTransition(newState, confidence = 0, labelName = "") {
     let confText = confidence > 0 ? `${confidence}%` : "-";
 
     if (newState === "GLASSES") {
-        // Ex: "Óculos de Sol Detetados" or "Óculos Graduados Detetados"
         const isSun = labelName.toLowerCase().includes("sol") || labelName.toLowerCase().includes("sun");
-        eventText = isSun ? "Óculos Sol Detetados" : "Óculos Grad. Detetados";
+        eventText = isSun ? "Óculos Sol Detetados" : "Óculos Normais Detetados";
         eventClass = "wearing";
     } else if (newState === "NO_GLASSES") {
         eventText = "Óculos Removidos";
@@ -654,6 +596,7 @@ function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Update text in loading overlays
 function updateLoadingProgress(text, progress) {
     loadingText.textContent = text;
     loadingProgress.style.width = `${progress}%`;

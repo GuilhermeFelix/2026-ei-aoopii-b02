@@ -7,23 +7,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <!-- Cache-busting link to force styles reload -->
+    <link rel="stylesheet" href="styles.css?v=1.2">
 </head>
 <body>
     <div class="app-container">
         <!-- Header -->
         <header class="app-header">
             <div class="logo-area">
-                <svg class="logo-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 12a5 5 0 0 1 5-5 5 5 0 0 1 5 5 5 5 0 0 1 5-5 5 5 0 0 1 5 5"></path>
-                    <path d="M2 12v1a5 5 0 0 0 5 5 5 5 0 0 0 5-5v-1"></path>
-                    <path d="M12 12v1a5 5 0 0 0 5 5 5 5 0 0 0 5-5v-1"></path>
-                    <line x1="7" y1="12" x2="7" y2="12.01"></line>
-                    <line x1="17" y1="12" x2="17" y2="12.01"></line>
-                </svg>
                 <div class="logo-text">
                     <h1>Virtual Try-On:<span> Glasses</span></h1>
-                    <p>Deteção Inteligente de Óculos em Qualquer Ponto da Imagem</p>
                 </div>
             </div>
             <div class="status-badge" id="system-status">
@@ -41,6 +34,7 @@
                     <div class="fps-counter" id="fps-display">FPS: 00</div>
                 </div>
 
+                <!-- Selector tabs for scanning modes -->
                 <div class="scan-modes-tabs" id="scan-modes-tabs">
                     <button class="mode-tab active" data-mode="sunglasses">🕶️ Óculos de Sol</button>
                     <button class="mode-tab" data-mode="spectacles">👓 Óculos Normais</button>
@@ -100,16 +94,6 @@
                     </div>
                 </section>
 
-                <!-- AI Vision Analysis (Class Predictions) -->
-                <section class="card glass vision-card">
-                    <div class="card-header">
-                        <h2>Visão da IA: Classes Detetadas</h2>
-                    </div>
-                    <div class="prediction-list" id="ai-prediction-list">
-                        <div class="empty-predictions">Ligue a câmara para iniciar o scanner...</div>
-                    </div>
-                </section>
-
                 <!-- Statistics Grid -->
                 <section class="card glass stats-card">
                     <div class="card-header">
@@ -166,7 +150,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
     <!-- Load MobileNet model from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
-    <!-- Application Logic module -->
-    <script type="module" src="app.js"></script>
+    <!-- Cache-busting script load to force reload -->
+    <script type="module" src="app.js?v=1.2"></script>
 </body>
 </html>
