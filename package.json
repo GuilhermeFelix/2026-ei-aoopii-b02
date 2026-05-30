@@ -11,5 +11,8 @@
     "webcam"
   ],
   "author": "VisualGuard",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "jimp": "^1.6.1"
+  }
 }
