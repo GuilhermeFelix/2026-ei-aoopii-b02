@@ -15,7 +15,10 @@ const ASSETS_TO_PROCESS = [
     "pixel.png",
     "heart.png",
     "star.png",
-    "disguise.png"
+    "disguise.png",
+    "cyberpunk.png",
+    "visor_sport.png",
+    "hexagonal.png"
 ];
 
 const ASSETS_DIR = path.join(__dirname, "assets");

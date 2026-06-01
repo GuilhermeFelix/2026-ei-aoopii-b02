@@ -32,6 +32,9 @@ const BASE_ASSETS = {
     visor: "assets/visor.png",
     steampunk: "assets/steampunk.png",
     heart_realistic: "assets/heart_realistic.png",
+    cyberpunk: "assets/cyberpunk.png",
+    visor_sport: "assets/visor_sport.png",
+    hexagonal: "assets/hexagonal.png",
     // Cartoon Bases
     pixel: "assets/pixel.png",
     heart: "assets/heart.png",
@@ -233,6 +236,54 @@ const GLASSES_MODELS = {
         yOffset: 0.0,
         type: "realistic",
         filter: "hue-rotate(220deg) saturate(1.6) brightness(1.1)"
+    },
+    cyberpunk_neon: {
+        name: "Cyberpunk Neon",
+        base: "cyberpunk",
+        scale: 2.3,
+        yOffset: 0.02,
+        type: "realistic",
+        filter: null
+    },
+    cyberpunk_pink: {
+        name: "Cyberpunk Rosa",
+        base: "cyberpunk",
+        scale: 2.3,
+        yOffset: 0.02,
+        type: "realistic",
+        filter: "hue-rotate(120deg)"
+    },
+    visor_sport_silver: {
+        name: "Viseira Desportiva Prata",
+        base: "visor_sport",
+        scale: 2.3,
+        yOffset: 0.02,
+        type: "realistic",
+        filter: null
+    },
+    visor_sport_blue: {
+        name: "Viseira Desportiva Azul",
+        base: "visor_sport",
+        scale: 2.3,
+        yOffset: 0.02,
+        type: "realistic",
+        filter: "hue-rotate(180deg) saturate(1.5)"
+    },
+    hexagonal_gold: {
+        name: "Hexagonal Ouro",
+        base: "hexagonal",
+        scale: 2.15,
+        yOffset: 0.05,
+        type: "realistic",
+        filter: null
+    },
+    hexagonal_black: {
+        name: "Hexagonal Preto",
+        base: "hexagonal",
+        scale: 2.15,
+        yOffset: 0.05,
+        type: "realistic",
+        filter: "grayscale(1) brightness(0.2)"
     },
 
     // === CARTOON (12 Models) ===
@@ -453,18 +504,11 @@ function renderCatalog(tabType) {
         // Apply filter directly in inline style so preview cards match the output color!
         const filterStyle = model.filter ? `style="filter: ${model.filter}"` : "";
         
-        let emoji = "🕶️";
-        if (baseName === "round" || baseName === "disguise" || baseName === "clubmaster" || baseName === "steampunk") emoji = "👓";
-        if (baseName === "heart" || baseName === "heart_realistic") emoji = "💖";
-        if (baseName === "star") emoji = "⭐";
-        if (baseName === "pixel") emoji = "👾";
-        if (baseName === "visor") emoji = "⚡";
-
         button.innerHTML = `
             <div class="card-img-wrapper">
                 <img src="${iconSrc}" alt="${model.name}" ${filterStyle}>
             </div>
-            <span>${emoji} ${model.name}</span>
+            <span>${model.name}</span>
         `;
         
         button.addEventListener("click", () => {
@@ -736,61 +780,9 @@ function drawGlassesOverlay(landmarks) {
     ctx.restore();
 }
 
-// Draw scientific HUD overlays around nose target
+// Draw scientific HUD overlays around nose target (disabled)
 function drawHUD(detected, landmarks = null) {
-    if (!detected || !landmarks) return;
-    
-    ctx.save();
-    ctx.strokeStyle = "rgba(6, 182, 212, 0.35)";
-    ctx.lineWidth = 1.5;
-    
-    const leftEye = landmarks[33];
-    const rightEye = landmarks[263];
-    const noseBridge = landmarks[168];
-    
-    const cw = canvas.width;
-    const ch = canvas.height;
-    
-    const lx = leftEye.x * cw;
-    const ly = leftEye.y * ch;
-    const rx = rightEye.x * cw;
-    const ry = rightEye.y * ch;
-    const nx = noseBridge.x * cw;
-    const ny = noseBridge.y * ch;
-    
-    // Connect eyes line
-    ctx.beginPath();
-    ctx.moveTo(lx, ly);
-    ctx.lineTo(rx, ry);
-    ctx.stroke();
-    
-    // Target pointer on nose bridge
-    const size = 9;
-    ctx.strokeStyle = "rgba(6, 182, 212, 0.55)";
-    ctx.beginPath();
-    ctx.moveTo(nx - size, ny);
-    ctx.lineTo(nx + size, ny);
-    ctx.moveTo(nx, ny - size);
-    ctx.lineTo(nx, ny + size);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.arc(nx, ny, 5, 0, 2 * Math.PI);
-    ctx.stroke();
-    
-    // Telemetry print
-    ctx.fillStyle = "rgba(6, 182, 212, 0.85)";
-    ctx.font = "bold 9px 'JetBrains Mono', monospace";
-    
-    const dx = rx - lx;
-    const dy = ry - ly;
-    const roll = (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(1);
-    
-    ctx.fillText(`AR TRACK: DETECTADO`, 20, ch - 50);
-    ctx.fillText(`ROLL: ${roll}°`, 20, ch - 35);
-    ctx.fillText(`SCALE: ${glassesScaleMultiplier.toFixed(2)}x`, 20, ch - 20);
-    
-    ctx.restore();
+    // Hidden as requested
 }
 
 // Update header badge status dots
