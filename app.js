@@ -499,7 +499,7 @@ function renderCatalog(tabType) {
         button.dataset.glasses = key;
         
                 const baseName = model.base;
-        const iconSrc = BASE_ASSETS[baseName];
+        const iconSrc = BASE_ASSETS[baseName] + "?v=1.5";
         
         // Apply filter directly in inline style so preview cards match the output color!
         const filterStyle = model.filter ? `style="filter: ${model.filter}"` : "";

@@ -122,6 +122,9 @@ async function removeBackground(filename) {
         // 3. Apply color unblending / alpha recovery on background and dilated border area
         let transparentPixels = 0;
         let unblendedPixels = 0;
+        let lensPixels = 0;
+        
+        const clearLenses = ["round.png", "clubmaster.png", "hexagonal.png", "cateye.png"].includes(filename);
         
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
@@ -157,10 +160,20 @@ async function removeBackground(filename) {
                         unblendedPixels++;
                     }
                 }
+                // If it is inside the frame (not background) and we want to clear white lenses
+                else if (clearLenses) {
+                    const r = data[pIdx];
+                    const g = data[pIdx + 1];
+                    const b = data[pIdx + 2];
+                    if (r > 200 && g > 200 && b > 200) {
+                        data[pIdx + 3] = 0; // Make lens fully transparent
+                        lensPixels++;
+                    }
+                }
             }
         }
         
-        console.log(`   Concluído: ${transparentPixels} píxeis transparentes, ${unblendedPixels} píxeis suavizados.`);
+        console.log(`   Concluído: ${transparentPixels} píxeis transparentes, ${unblendedPixels} píxeis suavizados, ${lensPixels} píxeis de lentes limpos.`);
         
         // Write the processed image back
         await image.write(filePath);
