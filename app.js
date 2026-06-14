@@ -10,6 +10,8 @@ const loadingText = document.getElementById("loading-text");
 const loadingProgress = document.getElementById("loading-progress");
 const btnToggleCam = document.getElementById("btn-toggle-cam");
 const btnTakeSnapshot = document.getElementById("btn-take-snapshot");
+const btnPrevGlasses = document.getElementById("btn-prev-glasses");
+const btnNextGlasses = document.getElementById("btn-next-glasses");
 const systemStatus = document.getElementById("system-status");
 const statusDot = systemStatus.querySelector(".status-dot");
 const statusLabel = systemStatus.querySelector(".status-label");
@@ -499,7 +501,7 @@ function renderCatalog(tabType) {
         button.dataset.glasses = key;
         
                 const baseName = model.base;
-        const iconSrc = BASE_ASSETS[baseName] + "?v=1.5";
+        const iconSrc = BASE_ASSETS[baseName] + "?v=1.8";
         
         // Apply filter directly in inline style so preview cards match the output color!
         const filterStyle = model.filter ? `style="filter: ${model.filter}"` : "";
@@ -759,6 +761,30 @@ function drawGlassesOverlay(landmarks) {
     cx += ux * totalOffset;
     cy += uy * totalOffset;
     
+    // Calculate projected distance from left eye to nose bridge, and nose bridge to right eye
+    // Unit vector along the eye line (from left to right)
+    const ex = dx / eyeDistance;
+    const ey = dy / eyeDistance;
+    
+    // Vectors from left eye to nose, and nose to right eye
+    const vNoseLx = (noseBridge.x * cw) - lx;
+    const vNoseLy = (noseBridge.y * ch) - ly;
+    const vNoseRx = rx - (noseBridge.x * cw);
+    const vNoseRy = ry - (noseBridge.y * ch);
+    
+    // Projected distances (clamped to positive)
+    let dL = vNoseLx * ex + vNoseLy * ey;
+    let dR = vNoseRx * ex + vNoseRy * ey;
+    dL = Math.max(0.01, dL);
+    dR = Math.max(0.01, dR);
+    
+    const sumD = dL + dR;
+    const ratioL = dL / sumD;
+    const ratioR = dR / sumD;
+    
+    const leftWidth = glassesWidth * ratioL;
+    const rightWidth = glassesWidth * ratioR;
+    
     // Draw on canvas using translate/rotate matrix operations
     ctx.save();
     ctx.translate(cx, cy);
@@ -769,14 +795,20 @@ function drawGlassesOverlay(landmarks) {
         ctx.filter = model.filter;
     }
     
-    // Draw centered on position
+    // Draw left half of the glasses
     ctx.drawImage(
         baseImgCanvas,
-        -glassesWidth / 2,
-        -glassesHeight / 2,
-        glassesWidth,
-        glassesHeight
+        0, 0, baseImgCanvas.width / 2, baseImgCanvas.height, // Source: left half
+        -leftWidth, -glassesHeight / 2, leftWidth, glassesHeight // Destination
     );
+    
+    // Draw right half of the glasses
+    ctx.drawImage(
+        baseImgCanvas,
+        baseImgCanvas.width / 2, 0, baseImgCanvas.width / 2, baseImgCanvas.height, // Source: right half
+        0, -glassesHeight / 2, rightWidth, glassesHeight // Destination
+    );
+    
     ctx.restore();
 }
 
@@ -816,6 +848,35 @@ function setUIState(state) {
             btnTakeSnapshot.style.opacity = "1";
             btnTakeSnapshot.style.cursor = "pointer";
             break;
+    }
+}
+
+// Navigate glasses catalog using viewport arrow buttons
+function navigateGlasses(direction) {
+    const currentTabKeys = Object.keys(GLASSES_MODELS).filter(
+        key => GLASSES_MODELS[key].type === activeTab
+    );
+    
+    if (currentTabKeys.length === 0) return;
+    
+    let currentIndex = currentTabKeys.indexOf(selectedGlassesModel);
+    if (currentIndex === -1) {
+        currentIndex = 0;
+    }
+    
+    if (direction === "next") {
+        currentIndex = (currentIndex + 1) % currentTabKeys.length;
+    } else if (direction === "prev") {
+        currentIndex = (currentIndex - 1 + currentTabKeys.length) % currentTabKeys.length;
+    }
+    
+    const newKey = currentTabKeys[currentIndex];
+    selectGlassesModel(newKey);
+    
+    // Auto-scroll the corresponding catalog card into view
+    const card = document.querySelector(`.catalog-card[data-glasses="${newKey}"]`);
+    if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     }
 }
 
@@ -876,6 +937,8 @@ tabButtons.forEach(btn => {
 // Action buttons listeners
 btnToggleCam.addEventListener("click", toggleCamera);
 btnTakeSnapshot.addEventListener("click", takeSnapshot);
+btnPrevGlasses.addEventListener("click", () => navigateGlasses("prev"));
+btnNextGlasses.addEventListener("click", () => navigateGlasses("next"));
 
 // Launch on load
 window.addEventListener("DOMContentLoaded", initApp);

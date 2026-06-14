@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <!-- Cache-busting link to force styles reload -->
-    <link rel="stylesheet" href="styles.css?v=1.4">
+    <link rel="stylesheet" href="styles.css?v=1.5">
 </head>
 <body>
     <div class="app-container">
@@ -38,6 +38,18 @@
                     <video id="webcam" autoplay playsinline muted></video>
                     <canvas id="output-canvas"></canvas>
                     <canvas id="snapshot-canvas" style="display: none;"></canvas>
+                    
+                    <!-- Navigation Arrows -->
+                    <button id="btn-prev-glasses" class="nav-arrow prev-arrow" title="Óculos Anterior" aria-label="Óculos Anterior">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                    </button>
+                    <button id="btn-next-glasses" class="nav-arrow next-arrow" title="Próximo Óculos" aria-label="Próximo Óculos">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
                     
                     <!-- Loading Overlay -->
                     <div class="overlay" id="loading-overlay">
@@ -136,6 +148,6 @@
     </div>
 
     <!-- Cache-busting script load to force reload -->
-    <script type="module" src="app.js?v=1.5"></script>
+    <script type="module" src="app.js?v=1.8"></script>
 </body>
 </html>

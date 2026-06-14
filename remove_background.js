@@ -35,6 +35,27 @@ async function removeBackground(filename) {
         // Access raw buffer data
         const data = image.bitmap.data;
         
+        // 0. Crop temples (ear arms) from margins of specific assets
+        const TEMPLES_CROP_PERCENT = {
+            "aviator.png": 0.08,
+            "wayfarer.png": 0.08,
+            "cateye.png": 0.05
+        };
+        const cropPercent = TEMPLES_CROP_PERCENT[filename] || 0;
+        const cropPixelsWidth = Math.floor(width * cropPercent);
+        
+        if (cropPixelsWidth > 0) {
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    if (x < cropPixelsWidth || x >= (width - cropPixelsWidth)) {
+                        const idx = y * width + x;
+                        const pIdx = idx * 4;
+                        data[pIdx + 3] = 0; // Set alpha to 0 (fully transparent)
+                    }
+                }
+            }
+        }
+        
         // 1. Run BFS/Flood-Fill from borders to find connected white background
         const isBg = new Uint8Array(width * height);
         const queue = [];
